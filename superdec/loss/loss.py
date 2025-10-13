@@ -1,4 +1,4 @@
-import torch 
+import torch
 import torch.nn as nn
 
 from superdec.loss.sampler import EqualDistanceSamplerSQ
@@ -83,13 +83,13 @@ class Loss(nn.Module):
         self._init_buffers()
 
         self.sampler = EqualDistanceSamplerSQ(n_samples=cfg.n_samples, D_eta=0.05, D_omega=0.05)
-        
+
         self.w_sps = cfg.w_sps
         self.w_ext = cfg.w_ext
         self.w_cub = cfg.w_cub
-        self.w_cd = cfg.w_cd    
+        self.w_cd = cfg.w_cd
 
-        self.cos_sim_cubes = nn.CosineSimilarity(dim=4, eps=1e-4) 
+        self.cos_sim_cubes = nn.CosineSimilarity(dim=4, eps=1e-4)
 
     def _init_buffers(self):
         self.register_buffer('mask_project', torch.FloatTensor([[0,1,1],[0,1,1],[1,0,1],[1,0,1],[1,1,0],[1,1,0]]).unsqueeze(0).unsqueeze(0))
@@ -107,12 +107,12 @@ class Loss(nn.Module):
         mask_plane = self.mask_plane.repeat(B,N,P,1)
         cube_normal = self.cube_normal.unsqueeze(2).repeat(B,N,P,1,1)
         scale_reshaped = out_dict['scale'].unsqueeze(1).repeat(1,N,1,6).reshape(B,N,P*6,3)
-        
+
         normals_inver_reshaped = normals_inver.permute(0,2,1,3).unsqueeze(3).repeat(1,1,1,6,1)
         _, idx_normals_sim_max = torch.max(self.cos_sim_cubes(normals_inver_reshaped, cube_normal),dim=-1,keepdim=True)
 
         pc_project = pc_inver.permute(0,2,1,3).repeat(1,1,1,6).reshape(B,N,P*6,3) * mask_project + planes_scaled * mask_plane
-        pc_project = torch.max(torch.min(pc_project, scale_reshaped), -scale_reshaped).view(B, N, P, 6, 3)  
+        pc_project = torch.max(torch.min(pc_project, scale_reshaped), -scale_reshaped).view(B, N, P, 6, 3)
         pc_project = torch.gather(pc_project, dim=3, index = idx_normals_sim_max.unsqueeze(-1).repeat(1,1,1,1,3)).squeeze(3).permute(0,2,1,3)
 
         diff = ((pc_project - pc_inver) ** 2).sum(-1).permute(0,2,1)
@@ -133,9 +133,9 @@ class Loss(nn.Module):
             pcl_to_prim_loss, prim_to_pcl_loss, normal_loss, pcl_to_prim_distances
         """
         weights = out_dict['assign_matrix']  # [B, P, N]
-        scale = out_dict['scale']             # [B, P, 3]
-        shape = out_dict['shape']             # [B, P, 2]
-        exist = out_dict['exist']             # [B, P, 1]
+        scale   = out_dict['scale']          # [B, P, 3]
+        shape   = out_dict['shape']          # [B, P, 2]
+        exist   = out_dict['exist']          # [B, P, 1]
 
         # Sample points and normals on superquadrics
         X_SQ, normals = sampling_from_parametric_space_to_equivalent_points(scale, shape, self.sampler)
@@ -147,7 +147,7 @@ class Loss(nn.Module):
         D = (diff ** 2).sum(-1)                                     # [B, P, S, N]
 
         # Point-to-Primitive Chamfer
-        pcl_to_prim_loss = D.min(dim=2)[0]      
+        pcl_to_prim_loss = D.min(dim=2)[0]
         pcl_to_prim_loss = (pcl_to_prim_loss.transpose(-1,-2) * weights).sum(-1).mean()            # [B, P, N]
 
         # Primitive-to-Point Chamfer
@@ -156,8 +156,8 @@ class Loss(nn.Module):
         prim_to_pcl_loss = (prim_to_pcl * exist.squeeze(-1)).sum(dim=-1)
         prim_to_pcl_loss = (prim_to_pcl_loss / (exist.squeeze(-1).sum(dim=-1) + 1e-6)).mean()
 
-        return pcl_to_prim_loss, pcl_to_prim_loss
-    
+        return pcl_to_prim_loss, prim_to_pcl_loss
+
     def compute_existence_loss(self, assign_matrix, exist):
         thred = 24
         loss = nn.BCELoss().cuda()
@@ -170,7 +170,7 @@ class Loss(nn.Module):
         norm_05 = (assign_matrix.sum(1)/num_points + 0.01).sqrt().mean(1).pow(2)
         norm_05 = torch.mean(norm_05)
         return norm_05
-    
+
     def forward(self, pc, normals, out_dict):
         pc_inver = transform_to_primitive_frame(pc, out_dict['trans'], out_dict['rotate'])
         normals_inver = transform_to_primitive_frame(normals, out_dict['trans'], out_dict['rotate'])
@@ -202,4 +202,3 @@ class Loss(nn.Module):
         loss_dict['expected_prim_num'] = out_dict['exist'].squeeze(-1).sum(-1).mean().data.detach().item()
         loss_dict['all'] = loss.item()
         return loss, loss_dict
-        

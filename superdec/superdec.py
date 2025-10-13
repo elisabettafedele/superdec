@@ -23,12 +23,17 @@ class SuperDec(nn.Module):
 
         self.point_encoder = StackedPVConv(ctx.point_encoder)
 
-        decoder_layer = DecoderLayer(d_model=self.emb_dims, nhead=self.n_heads, dim_feedforward=self.dim_feedforward, 
-                                               batch_first=True, swapped_attention=ctx.decoder.swapped_attention)
-        self.layers = TransformerDecoder(decoder_layer=decoder_layer, n_layers=self.n_layers, 
-                                         max_len=self.n_queries, pos_encoding_type=self.pos_encoding_type, 
+        decoder_layers = [DecoderLayer(d_model=self.emb_dims,
+                                        nhead=self.n_heads,
+                                        dim_feedforward=self.dim_feedforward,
+                                        batch_first=True,
+                                        swapped_attention=ctx.decoder.swapped_attention,)
+                                        for _ in range(self.n_layers)]
+
+        self.layers = TransformerDecoder(decoder_layers=decoder_layers, n_layers=self.n_layers,
+                                         max_len=self.n_queries, pos_encoding_type=self.pos_encoding_type,
                                          masked_attention=ctx.decoder.masked_attention)
-        
+
         self.layers.project_queries = nn.Sequential(
             nn.Linear(self.emb_dims, self.emb_dims),
             nn.ReLU(),
@@ -37,23 +42,23 @@ class SuperDec(nn.Module):
         self.heads = SuperDecHead(emb_dims=self.emb_dims)
         init_queries = torch.zeros(self.n_queries + 1, self.emb_dims)
         self.register_buffer('init_queries', init_queries) # TODO double check -> new codebase
-    
+
     def forward(self, x):
         point_features = self.point_encoder(x)
 
         refined_queries_list, assign_matrices = self.layers(self.init_queries, point_features)
         outdict_list = []
 
-        # TODO remove this in the final version. there is no need to compute the output for all of them   
+        # TODO remove this in the final version. there is no need to compute the output for all of them
         thred = 24
-        for i, q in enumerate(refined_queries_list): 
+        for i, q in enumerate(refined_queries_list):
             outdict_list += [self.heads(q[:,:-1,...])]
             assign_matrix = assign_matrices[i]
             assign_matrix = torch.softmax(assign_matrix, dim=2)
-            outdict_list[i]['assign_matrix'] = assign_matrix 
+            outdict_list[i]['assign_matrix'] = assign_matrix
             # outdict_list[i]['exist'] = (assign_matrix.sum(1) > thred).to(torch.float32).detach()[...,None]
 
         if self.lm_optimization:
             outdict_list[-1] = self.lm_optimizer(outdict_list[-1], x)
-            
+
         return outdict_list[-1]
