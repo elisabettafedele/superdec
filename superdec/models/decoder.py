@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn import TransformerDecoderLayer
 import math
+from typing import List
 
 class SinusoidalPositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len, device='cuda'):
@@ -27,14 +28,16 @@ class LearnablePositionalEncoding(nn.Module):
         return x + self.positional_encoding[:seq_len, :]
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, decoder_layer: TransformerDecoderLayer, n_layers, max_len, masked_attention, pos_encoding_type='sinusoidal'):
+    def __init__(self, decoder_layers: List[TransformerDecoderLayer], n_layers, max_len, masked_attention, pos_encoding_type='sinusoidal'):
         super(TransformerDecoder, self).__init__()
-        self.layers = nn.ModuleList([decoder_layer for _ in range(n_layers)])
+
+        # Updated Decoder Layers
+        self.layers = nn.ModuleList(decoder_layers)
         self.n_layers = n_layers
-        self.d_model = decoder_layer.linear1.in_features
+        self.d_model = decoder_layers[0].linear1.in_features
         self.max_len = max_len
         self.masked_attention = masked_attention
-        
+
         # Choose between sinusoidal and learnable positional encodings
         if pos_encoding_type == 'learnable':
             self.positional_encoding = LearnablePositionalEncoding(self.d_model, max_len)
@@ -63,4 +66,3 @@ class TransformerDecoder(nn.Module):
             assign_matrices.append(assign_matrix)  # Append projected queries
 
         return intermediate_outputs, assign_matrices  # Return the list of all intermediate outputs
-
